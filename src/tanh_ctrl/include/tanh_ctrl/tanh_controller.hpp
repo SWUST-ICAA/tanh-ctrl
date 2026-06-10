@@ -122,7 +122,10 @@ private:
 
   Eigen::Vector3d velocity_error_hat_ned_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d angular_velocity_error_hat_body_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d position_error_feedback_ned_{Eigen::Vector3d::Zero()};
+  double position_error_update_elapsed_s_{0.0};
   bool first_run_{true};
+  bool position_error_feedback_initialized_{false};
 
   Vec3ButterworthLowPass velocity_disturbance_lpf_{};
   Vec3ButterworthLowPass angular_velocity_disturbance_lpf_{};

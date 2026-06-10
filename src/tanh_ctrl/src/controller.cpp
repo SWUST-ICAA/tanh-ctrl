@@ -19,6 +19,8 @@ constexpr double kMinThrustOverMass = 1e-3;
 constexpr double kCutoffChangeToleranceHz = 1e-9;
 constexpr double kButterworthSqrt2 = 1.41421356237309504880;
 constexpr double kMaxNormalizedCutoff = 0.45;
+constexpr double kPositionErrorUpdateRateHz = 30.0;
+constexpr double kPositionErrorUpdatePeriodS = 1.0 / kPositionErrorUpdateRateHz;
 
 /************ math tools ***************/
 
@@ -252,7 +254,10 @@ void TanhController::setAngularVelocityDisturbanceLowPassHz(double cutoff_hz) {
 void TanhController::reset() {
   velocity_error_hat_ned_.setZero();
   angular_velocity_error_hat_body_.setZero();
+  position_error_feedback_ned_.setZero();
+  position_error_update_elapsed_s_ = 0.0;
   first_run_ = true;
+  position_error_feedback_initialized_ = false;
 
   resetButterworthLowPass(velocity_disturbance_lpf_);
   resetButterworthLowPass(angular_velocity_disturbance_lpf_);
@@ -369,19 +374,33 @@ void TanhController::initializeLoopState() {
 
   velocity_error_hat_ned_.setZero();
   angular_velocity_error_hat_body_.setZero();
+  position_error_feedback_ned_.setZero();
+  position_error_update_elapsed_s_ = 0.0;
   first_run_ = false;
+  position_error_feedback_initialized_ = false;
 }
 
 void TanhController::computePosition(const VehicleState &state,
                                      const TrajectoryRef &ref, double dt,
                                      Eigen::Vector3d *thrust_vec_ned) {
-  const Eigen::Vector3d position_error_ned =
-      state.position_ned - ref.position_ned;
-  const Eigen::Vector3d tanh_position_error =
-      tanhFeedback(position_error_ned, pos_gains_.K_P, Eigen::Vector3d::Ones());
+  position_error_update_elapsed_s_ += dt;
+  if (!position_error_feedback_initialized_ ||
+      position_error_update_elapsed_s_ >= kPositionErrorUpdatePeriodS) {
+    const Eigen::Vector3d position_error_ned =
+        state.position_ned - ref.position_ned;
+    position_error_feedback_ned_ = tanhFeedback(
+        position_error_ned, pos_gains_.K_P, Eigen::Vector3d::Ones());
+    position_error_update_elapsed_s_ =
+        position_error_feedback_initialized_
+            ? std::fmod(position_error_update_elapsed_s_,
+                        kPositionErrorUpdatePeriodS)
+            : 0.0;
+    position_error_feedback_initialized_ = true;
+  }
+
   const Eigen::Vector3d velocity_error_ned =
       (state.velocity_ned - ref.velocity_ned) +
-      pos_gains_.M_P.cwiseProduct(tanh_position_error);
+      pos_gains_.M_P.cwiseProduct(position_error_feedback_ned_);
   const Eigen::Vector3d velocity_estimation_error_ned =
       velocity_error_ned - velocity_error_hat_ned_;
   const Eigen::Vector3d velocity_disturbance_raw = tanhFeedback(
