@@ -21,14 +21,14 @@ tanh_ctrl:
 
     position:
       horizontal:
-        M_P: 0.6
-        K_P: 10.0
-        M_V: 8.5
-        K_V: 1.2
-        K_Acceleration: 1.2
+        M_P: 1.0
+        K_P: 15.0
+        M_V: 1.0
+        K_V: 15.0
+        K_Acceleration: 1.0
         observer:
-          P_V: 2.5
-          L_V: 1.0
+          P_V: 0.5
+          L_V: 5.0
       vertical:
         M_P: 0.8
         K_P: 7.0
@@ -42,14 +42,14 @@ tanh_ctrl:
 
     attitude:
       tilt:
-        M_Angle: 1.0
-        K_Angle: 18.0
-        M_AngularVelocity: 38.0
-        K_AngularVelocity: 1.25
-        K_AngularAcceleration: 1.282
+        M_Angle: 0.5
+        K_Angle: 30.0
+        M_AngularVelocity: 10.0
+        K_AngularVelocity: 10.0
+        K_AngularAcceleration: 1.0
         observer:
-          P_AngularVelocity: 20.0
-          L_AngularVelocity: 2.5
+          P_AngularVelocity: 10.0
+          L_AngularVelocity: 3.5
       yaw:
         M_Angle: 1.0
         K_Angle: 10.0
@@ -61,5 +61,5 @@ tanh_ctrl:
           L_AngularVelocity: 2.0
 
     filters:
-      velocity_disturbance_cutoff_hz: 50.0
-      angular_velocity_disturbance_cutoff_hz: 30.0
+      velocity_disturbance_cutoff_hz: 10.0
+      angular_velocity_disturbance_cutoff_hz: 25.0
