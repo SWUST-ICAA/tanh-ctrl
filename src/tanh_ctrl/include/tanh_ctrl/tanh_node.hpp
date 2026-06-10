@@ -1,6 +1,9 @@
 #pragma once
 
 #include <array>
+#include <string>
+
+#include <flat_trajectory_msgs/msg/flat_trajectory_reference.hpp>
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/vehicle_angular_velocity.hpp>
 #include <px4_msgs/msg/vehicle_attitude.hpp>
@@ -11,10 +14,7 @@
 #include <px4_msgs/msg/vehicle_torque_setpoint.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
-#include <string>
-#include <flat_trajectory_msgs/msg/flat_trajectory_reference.hpp>
 
-#include "tanh_ctrl/px4_bridge.hpp"
 #include "tanh_ctrl/tanh_controller.hpp"
 
 namespace tanh_ctrl {
@@ -27,35 +27,38 @@ enum MissionState {
   TRACKING,
 };
 
-TrajectoryRef trajectoryReferenceFromMsg(const flat_trajectory_msgs::msg::FlatTrajectoryReference& msg);
-
-TrajectoryRef makeHoldReference(const VehicleState& state, double target_z_ned, double yaw);
-
-bool hasFreshExternalReference(const TrajectoryRef& external_ref, uint64_t now_us, uint64_t last_reference_receive_us, double timeout_s);
-
-ControlOutput gateControlOutputForPublicationState(const ControlOutput& out, bool is_armed, bool is_offboard);
-
 class TanhNode : public rclcpp::Node {
- public:
-  explicit TanhNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+public:
+  explicit TanhNode(const rclcpp::NodeOptions &options = rclcpp::NodeOptions());
 
- private:
+private:
+  struct WrenchSetpointConfig {
+    double max_collective_thrust_n{1.0};
+    std::array<double, 3> max_torque_body_n_m{1.0, 1.0, 1.0};
+  };
+
   void declareParameters();
-  void loadParams();
+  void loadStartupParams();
+  void loadRuntimeTuningParams();
   void createRosInterfaces();
 
-  void localPositionCallback(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
+  void localPositionCallback(
+      const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
   void attitudeCallback(const px4_msgs::msg::VehicleAttitude::SharedPtr msg);
-  void angularVelocityCallback(const px4_msgs::msg::VehicleAngularVelocity::SharedPtr msg);
+  void angularVelocityCallback(
+      const px4_msgs::msg::VehicleAngularVelocity::SharedPtr msg);
   void vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg);
-  void referenceCallback(const flat_trajectory_msgs::msg::FlatTrajectoryReference::SharedPtr msg);
+  void referenceCallback(
+      const flat_trajectory_msgs::msg::FlatTrajectoryReference::SharedPtr msg);
   void positionControlLoop(uint64_t sample_us);
   void attitudeControlLoop(uint64_t sample_us);
 
-  void publishVehicleCommand(uint32_t command, float param1, float param2, float param3);
+  void publishVehicleCommand(uint32_t command, float param1, float param2,
+                             float param3);
   void publishStartTrackingSignal(bool enabled);
   void publishOffboardControlMode(uint64_t now_us);
-  void publishWrenchSetpoint(const ControlOutput& out, uint64_t now_us, uint64_t sample_us);
+  void publishWrenchSetpoint(const ControlOutput &out, uint64_t now_us,
+                             uint64_t sample_us);
   void resetControllerRuntimeState();
 
   void updateHoldReference(double target_z_ned);
@@ -67,19 +70,29 @@ class TanhNode : public rclcpp::Node {
   void handleMissionPreconditions();
   void maybeSendAutomaticRequests(uint64_t now_us);
   void updateMissionStateMachine(uint64_t now_us);
-  const TrajectoryRef* selectActiveReference(uint64_t now_us) const;
+  const TrajectoryRef *selectActiveReference(uint64_t now_us) const;
 
-  rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_position_sub_;
+  rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr
+      local_position_sub_;
   rclcpp::Subscription<px4_msgs::msg::VehicleAttitude>::SharedPtr attitude_sub_;
-  rclcpp::Subscription<px4_msgs::msg::VehicleAngularVelocity>::SharedPtr angular_velocity_sub_;
-  rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
-  rclcpp::Subscription<flat_trajectory_msgs::msg::FlatTrajectoryReference>::SharedPtr reference_sub_;
+  rclcpp::Subscription<px4_msgs::msg::VehicleAngularVelocity>::SharedPtr
+      angular_velocity_sub_;
+  rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr
+      vehicle_status_sub_;
+  rclcpp::Subscription<flat_trajectory_msgs::msg::FlatTrajectoryReference>::
+      SharedPtr reference_sub_;
 
-  rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboard_mode_pub_;
-  rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_pub_;
-  rclcpp::Publisher<px4_msgs::msg::VehicleThrustSetpoint>::SharedPtr thrust_sp_pub_;
-  rclcpp::Publisher<px4_msgs::msg::VehicleTorqueSetpoint>::SharedPtr torque_sp_pub_;
+  rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr
+      offboard_mode_pub_;
+  rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr
+      vehicle_command_pub_;
+  rclcpp::Publisher<px4_msgs::msg::VehicleThrustSetpoint>::SharedPtr
+      thrust_sp_pub_;
+  rclcpp::Publisher<px4_msgs::msg::VehicleTorqueSetpoint>::SharedPtr
+      torque_sp_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr start_tracking_pub_;
+
+  rclcpp::TimerBase::SharedPtr parameter_reload_timer_;
 
   VehicleState state_{};
   bool has_position_state_{false};
@@ -124,4 +137,4 @@ class TanhNode : public rclcpp::Node {
   double mission_request_interval_s_{1.0};
 };
 
-}  // namespace tanh_ctrl
+} // namespace tanh_ctrl

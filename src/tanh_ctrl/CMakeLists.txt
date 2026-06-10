@@ -37,78 +37,21 @@ if(NOT Sophus_FOUND)
   target_link_libraries(sophus_header_only INTERFACE Eigen3::Eigen)
 endif()
 
-add_library(tanh_ctrl_common
-  src/common.cpp
+add_executable(tanh_ctrl_node
+  src/main.cpp
+  src/node.cpp
+  src/controller.cpp
 )
 
-target_link_libraries(tanh_ctrl_common Eigen3::Eigen)
-target_link_libraries(tanh_ctrl_common Sophus::Sophus)
-target_include_directories(tanh_ctrl_common PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-add_library(tanh_ctrl_px4_bridge
-  src/px4_bridge.cpp
-)
-
-target_link_libraries(tanh_ctrl_px4_bridge
+target_link_libraries(tanh_ctrl_node
   Eigen3::Eigen
+  Sophus::Sophus
 )
-target_include_directories(tanh_ctrl_px4_bridge PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(tanh_ctrl_px4_bridge
-  px4_msgs
-)
-
-add_library(tanh_ctrl_blocks
-  src/tanh_blocks.cpp
-)
-
-target_link_libraries(tanh_ctrl_blocks Eigen3::Eigen)
-target_include_directories(tanh_ctrl_blocks PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-add_library(tanh_ctrl_core
-  src/tanh_controller.cpp
-)
-
-target_link_libraries(tanh_ctrl_core
-  Eigen3::Eigen
-  tanh_ctrl_blocks
-  tanh_ctrl_common
-)
-target_include_directories(tanh_ctrl_core PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-add_library(tanh_ctrl_node_lib
-  src/tanh_node.cpp
-)
-
-target_link_libraries(tanh_ctrl_node_lib
-  tanh_ctrl_px4_bridge
-  tanh_ctrl_core
-)
-ament_target_dependencies(tanh_ctrl_node_lib
+ament_target_dependencies(tanh_ctrl_node
   rclcpp
   px4_msgs
   std_msgs
   flat_trajectory_msgs
-)
-
-add_executable(tanh_ctrl_node
-  src/tanh_node_main.cpp
-)
-
-target_link_libraries(tanh_ctrl_node tanh_ctrl_node_lib)
-ament_target_dependencies(tanh_ctrl_node
-  rclcpp
 )
 target_include_directories(tanh_ctrl_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -116,15 +59,14 @@ target_include_directories(tanh_ctrl_node PUBLIC
 )
 
 install(TARGETS
-  tanh_ctrl_common
-  tanh_ctrl_px4_bridge
-  tanh_ctrl_blocks
-  tanh_ctrl_core
-  tanh_ctrl_node_lib
   tanh_ctrl_node
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/tanh_ctrl_param_gui.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME tanh_ctrl_param_gui
 )
 
 install(DIRECTORY include/

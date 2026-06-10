@@ -3,6 +3,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -18,10 +19,12 @@ def generate_launch_description():
     model_path = simulator_share / "models" / "real_x2" / "scene.xml"
 
     use_viewer_arg = DeclareLaunchArgument("use_viewer", default_value="true")
+    use_param_gui_arg = DeclareLaunchArgument("use_param_gui", default_value="false")
 
     return LaunchDescription(
         [
             use_viewer_arg,
+            use_param_gui_arg,
             Node(
                 package="uav_simulator",
                 executable="mujoco_px4_bridge",
@@ -48,6 +51,13 @@ def generate_launch_description():
                 name="lissajous_traj_pub",
                 output="screen",
                 parameters=[str(traj_params)],
+            ),
+            Node(
+                package="tanh_ctrl",
+                executable="tanh_ctrl_param_gui",
+                name="tanh_ctrl_param_gui",
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("use_param_gui")),
             ),
         ]
     )
