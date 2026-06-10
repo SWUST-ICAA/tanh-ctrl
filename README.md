@@ -40,7 +40,7 @@ ros2 launch uav_simulator uav_simulator.launch.py use_viewer:=true
 启动仿真器、控制器和 8 字轨迹发布器：
 
 ```bash
-ros2 launch uav_simulator tanh_ctrl_mujoco.launch.py use_viewer:=true
+ros2 launch tanh_ctrl mujoco_sim.launch.py use_viewer:=true
 ```
 
 `src/traj_pub/config/lissajous_figure8.yaml` 可调整 8 字轨迹参数，包括 `origin_ned`、`amplitude_ned`、`period_s`、各轴 harmonic/phase 和 `yaw_rad`。默认等待控制器发布 `/mission/start_tracking` 后开始发布 `/tanh_ctrl/reference`。
