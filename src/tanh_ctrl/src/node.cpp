@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <exception>
 #include <functional>
 #include <string>
 #include <vector>
@@ -107,10 +108,54 @@ void declareAxisPair(rclcpp::Node &node, const char *shared_name,
   node.declare_parameter<double>(axial_name, axial_default);
 }
 
-Eigen::Vector3d loadAxisPairParam(rclcpp::Node &node, const char *shared_name,
-                                  const char *axial_name) {
-  return planarAxisVec(node.get_parameter(shared_name).as_double(),
-                       node.get_parameter(axial_name).as_double());
+Eigen::Vector3d
+loadAxisPairValue(const std::function<double(const std::string &)> &get_double,
+                  const char *shared_name, const char *axial_name) {
+  return planarAxisVec(get_double(shared_name), get_double(axial_name));
+}
+
+bool isRuntimeTuningParameterName(const std::string &name) {
+  static const std::vector<std::string> names = {
+      "model.mass",
+      "model.gravity",
+      "model.max_collective_thrust",
+      "model.diagonal_wheelbase_m",
+      "model.moment_to_thrust_ratio_m",
+      "model.inertia_diag",
+      "position.horizontal.M_P",
+      "position.vertical.M_P",
+      "position.horizontal.K_P",
+      "position.vertical.K_P",
+      "position.horizontal.M_V",
+      "position.vertical.M_V",
+      "position.horizontal.K_V",
+      "position.vertical.K_V",
+      "position.horizontal.K_Acceleration",
+      "position.vertical.K_Acceleration",
+      "position.horizontal.observer.P_V",
+      "position.vertical.observer.P_V",
+      "position.horizontal.observer.L_V",
+      "position.vertical.observer.L_V",
+      "position.max_tilt_deg",
+      "attitude.tilt.M_Angle",
+      "attitude.yaw.M_Angle",
+      "attitude.tilt.K_Angle",
+      "attitude.yaw.K_Angle",
+      "attitude.tilt.M_AngularVelocity",
+      "attitude.yaw.M_AngularVelocity",
+      "attitude.tilt.K_AngularVelocity",
+      "attitude.yaw.K_AngularVelocity",
+      "attitude.tilt.K_AngularAcceleration",
+      "attitude.yaw.K_AngularAcceleration",
+      "attitude.tilt.observer.P_AngularVelocity",
+      "attitude.yaw.observer.P_AngularVelocity",
+      "attitude.tilt.observer.L_AngularVelocity",
+      "attitude.yaw.observer.L_AngularVelocity",
+      "filters.velocity_disturbance_cutoff_hz",
+      "filters.angular_velocity_disturbance_cutoff_hz",
+  };
+
+  return std::find(names.begin(), names.end(), name) != names.end();
 }
 
 /***************************************/
@@ -251,6 +296,9 @@ TanhNode::TanhNode(const rclcpp::NodeOptions &options)
   declareParameters();
   loadStartupParams();
   loadRuntimeTuningParams();
+  runtime_parameter_callback_handle_ = this->add_on_set_parameters_callback(
+      std::bind(&TanhNode::handleRuntimeParameterChange, this,
+                std::placeholders::_1));
   createRosInterfaces();
   parameter_reload_timer_ = this->create_wall_timer(
       std::chrono::milliseconds(100),
@@ -377,11 +425,24 @@ void TanhNode::loadStartupParams() {
 }
 
 void TanhNode::loadRuntimeTuningParams() {
-  controller_.setMass(this->get_parameter("model.mass").as_double());
-  controller_.setGravity(this->get_parameter("model.gravity").as_double());
+  const auto get_double = [this](const std::string &name) {
+    return this->get_parameter(name).as_double();
+  };
+  const auto get_double_array = [this](const std::string &name) {
+    return this->get_parameter(name).as_double_array();
+  };
 
-  const auto inertia_diag =
-      this->get_parameter("model.inertia_diag").as_double_array();
+  applyRuntimeTuningParams(get_double, get_double_array);
+}
+
+void TanhNode::applyRuntimeTuningParams(
+    const std::function<double(const std::string &)> &get_double,
+    const std::function<std::vector<double>(const std::string &)>
+        &get_double_array) {
+  controller_.setMass(get_double("model.mass"));
+  controller_.setGravity(get_double("model.gravity"));
+
+  const auto inertia_diag = get_double_array("model.inertia_diag");
   if (inertia_diag.size() != 3) {
     RCLCPP_WARN(
         this->get_logger(),
@@ -396,70 +457,113 @@ void TanhNode::loadRuntimeTuningParams() {
   }
 
   PositionGains position_gains;
-  position_gains.M_P = loadAxisPairParam(*this, "position.horizontal.M_P",
+  position_gains.M_P = loadAxisPairValue(get_double, "position.horizontal.M_P",
                                          "position.vertical.M_P");
-  position_gains.K_P = loadAxisPairParam(*this, "position.horizontal.K_P",
+  position_gains.K_P = loadAxisPairValue(get_double, "position.horizontal.K_P",
                                          "position.vertical.K_P");
-  position_gains.M_V = loadAxisPairParam(*this, "position.horizontal.M_V",
+  position_gains.M_V = loadAxisPairValue(get_double, "position.horizontal.M_V",
                                          "position.vertical.M_V");
-  position_gains.K_V = loadAxisPairParam(*this, "position.horizontal.K_V",
+  position_gains.K_V = loadAxisPairValue(get_double, "position.horizontal.K_V",
                                          "position.vertical.K_V");
   position_gains.K_Acceleration =
-      loadAxisPairParam(*this, "position.horizontal.K_Acceleration",
+      loadAxisPairValue(get_double, "position.horizontal.K_Acceleration",
                         "position.vertical.K_Acceleration");
   position_gains.P_V =
-      loadAxisPairParam(*this, "position.horizontal.observer.P_V",
+      loadAxisPairValue(get_double, "position.horizontal.observer.P_V",
                         "position.vertical.observer.P_V");
   position_gains.L_V =
-      loadAxisPairParam(*this, "position.horizontal.observer.L_V",
+      loadAxisPairValue(get_double, "position.horizontal.observer.L_V",
                         "position.vertical.observer.L_V");
   controller_.setPositionGains(position_gains);
 
-  const double max_tilt_deg =
-      this->get_parameter("position.max_tilt_deg").as_double();
+  const double max_tilt_deg = get_double("position.max_tilt_deg");
   controller_.setMaxTilt(max_tilt_deg * M_PI / 180.0);
 
   AttitudeGains attitude_gains;
-  attitude_gains.M_Angle =
-      loadAxisPairParam(*this, "attitude.tilt.M_Angle", "attitude.yaw.M_Angle");
-  attitude_gains.K_Angle =
-      loadAxisPairParam(*this, "attitude.tilt.K_Angle", "attitude.yaw.K_Angle");
+  attitude_gains.M_Angle = loadAxisPairValue(
+      get_double, "attitude.tilt.M_Angle", "attitude.yaw.M_Angle");
+  attitude_gains.K_Angle = loadAxisPairValue(
+      get_double, "attitude.tilt.K_Angle", "attitude.yaw.K_Angle");
   attitude_gains.M_AngularVelocity =
-      loadAxisPairParam(*this, "attitude.tilt.M_AngularVelocity",
+      loadAxisPairValue(get_double, "attitude.tilt.M_AngularVelocity",
                         "attitude.yaw.M_AngularVelocity");
   attitude_gains.K_AngularVelocity =
-      loadAxisPairParam(*this, "attitude.tilt.K_AngularVelocity",
+      loadAxisPairValue(get_double, "attitude.tilt.K_AngularVelocity",
                         "attitude.yaw.K_AngularVelocity");
   attitude_gains.K_AngularAcceleration =
-      loadAxisPairParam(*this, "attitude.tilt.K_AngularAcceleration",
+      loadAxisPairValue(get_double, "attitude.tilt.K_AngularAcceleration",
                         "attitude.yaw.K_AngularAcceleration");
   attitude_gains.P_AngularVelocity =
-      loadAxisPairParam(*this, "attitude.tilt.observer.P_AngularVelocity",
+      loadAxisPairValue(get_double, "attitude.tilt.observer.P_AngularVelocity",
                         "attitude.yaw.observer.P_AngularVelocity");
   attitude_gains.L_AngularVelocity =
-      loadAxisPairParam(*this, "attitude.tilt.observer.L_AngularVelocity",
+      loadAxisPairValue(get_double, "attitude.tilt.observer.L_AngularVelocity",
                         "attitude.yaw.observer.L_AngularVelocity");
   controller_.setAttitudeGains(attitude_gains);
 
   controller_.setVelocityDisturbanceLowPassHz(
-      this->get_parameter("filters.velocity_disturbance_cutoff_hz")
-          .as_double());
+      get_double("filters.velocity_disturbance_cutoff_hz"));
   controller_.setAngularVelocityDisturbanceLowPassHz(
-      this->get_parameter("filters.angular_velocity_disturbance_cutoff_hz")
-          .as_double());
+      get_double("filters.angular_velocity_disturbance_cutoff_hz"));
 
-  const double max_collective_thrust_n = std::max(
-      1.0e-6, this->get_parameter("model.max_collective_thrust").as_double());
-  const double diagonal_wheelbase_m = std::max(
-      1.0e-6, this->get_parameter("model.diagonal_wheelbase_m").as_double());
-  const double moment_to_thrust_ratio_m = std::max(
-      1.0e-6,
-      this->get_parameter("model.moment_to_thrust_ratio_m").as_double());
+  const double max_collective_thrust_n =
+      std::max(1.0e-6, get_double("model.max_collective_thrust"));
+  const double diagonal_wheelbase_m =
+      std::max(1.0e-6, get_double("model.diagonal_wheelbase_m"));
+  const double moment_to_thrust_ratio_m =
+      std::max(1.0e-6, get_double("model.moment_to_thrust_ratio_m"));
   wrench_setpoint_config_.max_collective_thrust_n = max_collective_thrust_n;
   wrench_setpoint_config_.torque_limit_body_n_m =
       computeTorqueLimitsFromCollectiveThrust(max_collective_thrust_n,
                                               diagonal_wheelbase_m,
                                               moment_to_thrust_ratio_m);
+}
+
+rcl_interfaces::msg::SetParametersResult TanhNode::handleRuntimeParameterChange(
+    const std::vector<rclcpp::Parameter> &parameters) {
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+
+  const auto changed_runtime_param =
+      std::find_if(parameters.begin(), parameters.end(),
+                   [](const rclcpp::Parameter &parameter) {
+                     return isRuntimeTuningParameterName(parameter.get_name());
+                   });
+  if (changed_runtime_param == parameters.end()) {
+    return result;
+  }
+
+  const auto find_override =
+      [&parameters](const std::string &name) -> const rclcpp::Parameter * {
+    const auto iter = std::find_if(parameters.begin(), parameters.end(),
+                                   [&name](const rclcpp::Parameter &parameter) {
+                                     return parameter.get_name() == name;
+                                   });
+    return iter == parameters.end() ? nullptr : &(*iter);
+  };
+  const auto get_double = [this, &find_override](const std::string &name) {
+    if (const rclcpp::Parameter *parameter = find_override(name)) {
+      return parameter->as_double();
+    }
+    return this->get_parameter(name).as_double();
+  };
+  const auto get_double_array = [this,
+                                 &find_override](const std::string &name) {
+    if (const rclcpp::Parameter *parameter = find_override(name)) {
+      return parameter->as_double_array();
+    }
+    return this->get_parameter(name).as_double_array();
+  };
+
+  try {
+    applyRuntimeTuningParams(get_double, get_double_array);
+    RCLCPP_INFO(this->get_logger(), "Runtime tuning parameters applied.");
+  } catch (const std::exception &exc) {
+    result.successful = false;
+    result.reason = exc.what();
+  }
+
+  return result;
 }
 
 /***************************************/

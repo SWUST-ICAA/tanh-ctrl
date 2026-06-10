@@ -28,17 +28,17 @@ double clampPositive(double value, double fallback) {
   return value > 0.0 ? value : fallback;
 }
 
-struct TimeScale {
-  double tau{0.0};
-  double tau_dot{1.0};
-  double tau_ddot{0.0};
-  double tau_dddot{0.0};
-  double tau_ddddot{0.0};
+struct StartupBlend {
+  double value{1.0};
+  double dot{0.0};
+  double ddot{0.0};
+  double dddot{0.0};
+  double ddddot{0.0};
 };
 
-TimeScale smoothStartupTime(double t, double smoothing_s) {
+StartupBlend smoothStartupBlend(double t, double smoothing_s) {
   if (smoothing_s <= 0.0 || t >= smoothing_s) {
-    return {t, 1.0, 0.0, 0.0, 0.0};
+    return {1.0, 0.0, 0.0, 0.0, 0.0};
   }
 
   const double r = smoothing_s;
@@ -62,7 +62,8 @@ TimeScale smoothStartupTime(double t, double smoothing_s) {
   const double dddds =
       8400.0 * u - 80640.0 * u2 + 235200.0 * u3 - 268800.0 * u4 + 105840.0 * u5;
 
-  return {r * s, ds, dds / r, ddds / (r * r), dddds / (r * r * r)};
+  return {s, ds / r, dds / (r * r), ddds / (r * r * r),
+          dddds / (r * r * r * r)};
 }
 
 } // namespace
@@ -166,7 +167,8 @@ private:
     }
 
     const double t = std::max(0.0, (this->now() - start_time_).seconds());
-    const TimeScale time_scale = smoothStartupTime(t, startup_smoothing_s_);
+    const StartupBlend startup_blend =
+        smoothStartupBlend(t, startup_smoothing_s_);
     const double base_omega = 2.0 * kPi / period_s_;
 
     flat_trajectory_msgs::msg::FlatTrajectoryReference ref;
@@ -184,33 +186,32 @@ private:
 
     for (int axis = 0; axis < 3; ++axis) {
       const double omega = base_omega * harmonics_[axis];
-      const double angle = omega * time_scale.tau + phases_[axis];
+      const double angle = omega * t + phases_[axis];
       const double amplitude = amplitude_ned_[axis];
       const double sin_angle = std::sin(angle);
       const double cos_angle = std::cos(angle);
-      const double base_velocity = amplitude * omega * cos_angle;
-      const double base_acceleration = -amplitude * omega * omega * sin_angle;
-      const double base_jerk = -amplitude * omega * omega * omega * cos_angle;
-      const double base_snap =
+      const double raw_position = amplitude * sin_angle;
+      const double raw_velocity = amplitude * omega * cos_angle;
+      const double raw_acceleration = -amplitude * omega * omega * sin_angle;
+      const double raw_jerk = -amplitude * omega * omega * omega * cos_angle;
+      const double raw_snap =
           amplitude * omega * omega * omega * omega * sin_angle;
 
-      position[axis] = origin_ned_[axis] + amplitude * sin_angle;
-      velocity[axis] = base_velocity * time_scale.tau_dot;
-      acceleration[axis] =
-          base_acceleration * time_scale.tau_dot * time_scale.tau_dot +
-          base_velocity * time_scale.tau_ddot;
-      jerk[axis] =
-          base_jerk * time_scale.tau_dot * time_scale.tau_dot *
-              time_scale.tau_dot +
-          3.0 * base_acceleration * time_scale.tau_dot * time_scale.tau_ddot +
-          base_velocity * time_scale.tau_dddot;
-      snap[axis] =
-          base_snap * std::pow(time_scale.tau_dot, 4.0) +
-          6.0 * base_jerk * time_scale.tau_dot * time_scale.tau_dot *
-              time_scale.tau_ddot +
-          3.0 * base_acceleration * time_scale.tau_ddot * time_scale.tau_ddot +
-          4.0 * base_acceleration * time_scale.tau_dot * time_scale.tau_dddot +
-          base_velocity * time_scale.tau_ddddot;
+      position[axis] = origin_ned_[axis] + startup_blend.value * raw_position;
+      velocity[axis] =
+          startup_blend.dot * raw_position + startup_blend.value * raw_velocity;
+      acceleration[axis] = startup_blend.ddot * raw_position +
+                           2.0 * startup_blend.dot * raw_velocity +
+                           startup_blend.value * raw_acceleration;
+      jerk[axis] = startup_blend.dddot * raw_position +
+                   3.0 * startup_blend.ddot * raw_velocity +
+                   3.0 * startup_blend.dot * raw_acceleration +
+                   startup_blend.value * raw_jerk;
+      snap[axis] = startup_blend.ddddot * raw_position +
+                   4.0 * startup_blend.dddot * raw_velocity +
+                   6.0 * startup_blend.ddot * raw_acceleration +
+                   4.0 * startup_blend.dot * raw_jerk +
+                   startup_blend.value * raw_snap;
     }
 
     ref.position_ned.x = position[0];

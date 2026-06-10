@@ -1,6 +1,8 @@
 #pragma once
 
+#include <functional>
 #include <string>
+#include <vector>
 
 #include <flat_trajectory_msgs/msg/flat_trajectory_reference.hpp>
 #include <px4_msgs/msg/offboard_control_mode.hpp>
@@ -11,6 +13,7 @@
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <px4_msgs/msg/vehicle_thrust_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_torque_setpoint.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 
@@ -39,6 +42,12 @@ private:
   void declareParameters();
   void loadStartupParams();
   void loadRuntimeTuningParams();
+  void applyRuntimeTuningParams(
+      const std::function<double(const std::string &)> &get_double,
+      const std::function<std::vector<double>(const std::string &)>
+          &get_double_array);
+  rcl_interfaces::msg::SetParametersResult handleRuntimeParameterChange(
+      const std::vector<rclcpp::Parameter> &parameters);
   void createRosInterfaces();
 
   void localPositionCallback(
@@ -92,6 +101,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr start_tracking_pub_;
 
   rclcpp::TimerBase::SharedPtr parameter_reload_timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+      runtime_parameter_callback_handle_;
 
   VehicleState state_{};
   bool has_position_state_{false};
