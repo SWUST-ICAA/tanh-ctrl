@@ -12,6 +12,8 @@
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr std::array<double, 3> kFigure8Harmonics{1.0, 2.0, 1.0};
+constexpr std::array<double, 3> kFigure8PhasesRad{0.0, 0.0, 0.0};
 
 std::array<double, 3> loadVector3(rclcpp::Node &node, const std::string &name,
                                   const std::array<double, 3> &fallback) {
@@ -88,16 +90,10 @@ private:
     this->declare_parameter<double>("rate_hz", 100.0);
     this->declare_parameter<std::vector<double>>("origin_ned",
                                                  {0.0, 0.0, -1.0});
-    this->declare_parameter<std::vector<double>>("amplitude_ned",
-                                                 {0.8, 0.5, 0.0});
+    this->declare_parameter<double>("amplitude_x_m", 0.8);
+    this->declare_parameter<double>("amplitude_y_m", 0.5);
     this->declare_parameter<double>("period_s", 12.0);
     this->declare_parameter<double>("startup_smoothing_s", 2.0);
-    this->declare_parameter<double>("x_harmonic", 1.0);
-    this->declare_parameter<double>("y_harmonic", 2.0);
-    this->declare_parameter<double>("z_harmonic", 1.0);
-    this->declare_parameter<double>("phase_x_rad", 0.0);
-    this->declare_parameter<double>("phase_y_rad", 0.0);
-    this->declare_parameter<double>("phase_z_rad", 0.0);
     this->declare_parameter<double>("yaw_rad", 0.0);
   }
 
@@ -111,21 +107,14 @@ private:
     enabled_ = this->get_parameter("start_enabled").as_bool();
     rate_hz_ = clampPositive(this->get_parameter("rate_hz").as_double(), 100.0);
     origin_ned_ = loadVector3(*this, "origin_ned", {0.0, 0.0, -1.0});
-    amplitude_ned_ = loadVector3(*this, "amplitude_ned", {0.8, 0.5, 0.0});
+    amplitude_x_m_ =
+        std::max(0.0, this->get_parameter("amplitude_x_m").as_double());
+    amplitude_y_m_ =
+        std::max(0.0, this->get_parameter("amplitude_y_m").as_double());
     period_s_ =
         clampPositive(this->get_parameter("period_s").as_double(), 12.0);
     startup_smoothing_s_ =
         std::max(0.0, this->get_parameter("startup_smoothing_s").as_double());
-    harmonics_ = {
-        this->get_parameter("x_harmonic").as_double(),
-        this->get_parameter("y_harmonic").as_double(),
-        this->get_parameter("z_harmonic").as_double(),
-    };
-    phases_ = {
-        this->get_parameter("phase_x_rad").as_double(),
-        this->get_parameter("phase_y_rad").as_double(),
-        this->get_parameter("phase_z_rad").as_double(),
-    };
     yaw_rad_ = this->get_parameter("yaw_rad").as_double();
   }
 
@@ -183,11 +172,12 @@ private:
     std::array<double, 3> acceleration{};
     std::array<double, 3> jerk{};
     std::array<double, 3> snap{};
+    const std::array<double, 3> amplitudes{amplitude_x_m_, amplitude_y_m_, 0.0};
 
     for (int axis = 0; axis < 3; ++axis) {
-      const double omega = base_omega * harmonics_[axis];
-      const double angle = omega * t + phases_[axis];
-      const double amplitude = amplitude_ned_[axis];
+      const double omega = base_omega * kFigure8Harmonics[axis];
+      const double angle = omega * t + kFigure8PhasesRad[axis];
+      const double amplitude = amplitudes[axis];
       const double sin_angle = std::sin(angle);
       const double cos_angle = std::cos(angle);
       const double raw_position = amplitude * sin_angle;
@@ -243,9 +233,8 @@ private:
   double startup_smoothing_s_{2.0};
   double yaw_rad_{0.0};
   std::array<double, 3> origin_ned_{0.0, 0.0, -1.0};
-  std::array<double, 3> amplitude_ned_{0.8, 0.5, 0.0};
-  std::array<double, 3> harmonics_{1.0, 2.0, 1.0};
-  std::array<double, 3> phases_{0.0, 0.0, 0.0};
+  double amplitude_x_m_{0.8};
+  double amplitude_y_m_{0.5};
   rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Publisher<flat_trajectory_msgs::msg::FlatTrajectoryReference>::

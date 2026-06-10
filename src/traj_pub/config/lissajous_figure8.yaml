@@ -8,13 +8,8 @@ lissajous_traj_pub:
     start_enabled: false
     rate_hz: 100.0
     origin_ned: [0.0, 0.0, -1.0]
-    amplitude_ned: [0.8, 0.5, 0.0]
+    amplitude_x_m: 3.0
+    amplitude_y_m: 1.5
     period_s: 12.0
     startup_smoothing_s: 2.0
-    x_harmonic: 1.0
-    y_harmonic: 2.0
-    z_harmonic: 1.0
-    phase_x_rad: 0.0
-    phase_y_rad: 0.0
-    phase_z_rad: 0.0
     yaw_rad: 0.0
