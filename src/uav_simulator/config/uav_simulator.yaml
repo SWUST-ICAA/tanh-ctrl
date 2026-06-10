@@ -7,3 +7,12 @@ uav_simulator:
     local_position_rate_hz: 100.0
     attitude_rate_hz: 250.0
     angular_velocity_rate_hz: 800.0
+    noise:
+      enabled: true
+      seed: 7
+      position_std_m: 0.002
+      velocity_std_mps: 0.01
+      linear_acceleration_std_mps2: 0.05
+      attitude_std_rad: 0.0015
+      angular_velocity_std_radps: 0.005
+      angular_acceleration_std_radps2: 0.05

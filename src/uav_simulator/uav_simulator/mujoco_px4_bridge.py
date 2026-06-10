@@ -35,6 +35,24 @@ def positive_rate(value, fallback):
     return rate
 
 
+def nonnegative_std(value):
+    return max(0.0, float(value))
+
+
+def quat_multiply_wxyz(lhs, rhs):
+    lw, lx, ly, lz = np.asarray(lhs, dtype=float)
+    rw, rx, ry, rz = np.asarray(rhs, dtype=float)
+    return np.array(
+        [
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        ],
+        dtype=float,
+    )
+
+
 class MujocoPx4Bridge(Node):
     def __init__(self):
         super().__init__("uav_simulator")
@@ -48,6 +66,7 @@ class MujocoPx4Bridge(Node):
         self._attitude_rate_hz = positive_rate(self.get_parameter("attitude_rate_hz").value, 250.0)
         self._angular_velocity_rate_hz = positive_rate(self.get_parameter("angular_velocity_rate_hz").value, 800.0)
         self._mujoco_substeps = max(1, int(self.get_parameter("mujoco_substeps").value))
+        self._load_noise_parameters()
 
         self.model = mujoco.MjModel.from_xml_path(self._model_path())
         self.model.opt.timestep = 1.0 / (self._control_rate_hz * self._mujoco_substeps)
@@ -108,6 +127,30 @@ class MujocoPx4Bridge(Node):
         self.declare_parameter("local_position_rate_hz", 100.0)
         self.declare_parameter("attitude_rate_hz", 250.0)
         self.declare_parameter("angular_velocity_rate_hz", 800.0)
+        self.declare_parameter("noise.enabled", True)
+        self.declare_parameter("noise.seed", 7)
+        self.declare_parameter("noise.position_std_m", 0.002)
+        self.declare_parameter("noise.velocity_std_mps", 0.01)
+        self.declare_parameter("noise.linear_acceleration_std_mps2", 0.05)
+        self.declare_parameter("noise.attitude_std_rad", 0.0015)
+        self.declare_parameter("noise.angular_velocity_std_radps", 0.005)
+        self.declare_parameter("noise.angular_acceleration_std_radps2", 0.05)
+
+    def _load_noise_parameters(self):
+        self._noise_enabled = bool(self.get_parameter("noise.enabled").value)
+        self._noise_rng = np.random.default_rng(int(self.get_parameter("noise.seed").value))
+        self._position_noise_std_m = nonnegative_std(self.get_parameter("noise.position_std_m").value)
+        self._velocity_noise_std_mps = nonnegative_std(self.get_parameter("noise.velocity_std_mps").value)
+        self._linear_acceleration_noise_std_mps2 = nonnegative_std(
+            self.get_parameter("noise.linear_acceleration_std_mps2").value
+        )
+        self._attitude_noise_std_rad = nonnegative_std(self.get_parameter("noise.attitude_std_rad").value)
+        self._angular_velocity_noise_std_radps = nonnegative_std(
+            self.get_parameter("noise.angular_velocity_std_radps").value
+        )
+        self._angular_acceleration_noise_std_radps2 = nonnegative_std(
+            self.get_parameter("noise.angular_acceleration_std_radps2").value
+        )
 
     def _model_path(self):
         configured = self.get_parameter("model_path").value
@@ -141,6 +184,32 @@ class MujocoPx4Bridge(Node):
 
     def _now_us(self):
         return int(self.data.time * 1_000_000)
+
+    # ************ noise tools ***************
+
+    def _noise(self, std, size=3):
+        if not self._noise_enabled or std <= 0.0:
+            return np.zeros(size)
+        return self._noise_rng.normal(0.0, std, size)
+
+    def _noisy_attitude_quat(self, quat_px4):
+        if not self._noise_enabled or self._attitude_noise_std_rad <= 0.0:
+            return np.asarray(quat_px4, dtype=float)
+
+        delta_angle = self._noise(self._attitude_noise_std_rad)
+        angle = float(np.linalg.norm(delta_angle))
+        if angle <= 1.0e-12:
+            delta_quat = np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+        else:
+            axis = delta_angle / angle
+            half_angle = 0.5 * angle
+            delta_quat = np.concatenate(([np.cos(half_angle)], axis * np.sin(half_angle)))
+
+        noisy_quat = quat_multiply_wxyz(delta_quat, quat_px4)
+        noisy_quat /= max(np.linalg.norm(noisy_quat), 1.0e-12)
+        return noisy_quat
+
+    # ***************************************
 
     def _step(self):
         self._apply_control()
@@ -182,7 +251,10 @@ class MujocoPx4Bridge(Node):
         position_ned = enu_to_ned(position_enu)
         velocity_ned = enu_to_ned(velocity_enu)
         acceleration_ned = self._linear_acceleration_ned(velocity_ned)
-        quat_px4 = mujoco_quat_to_px4_quat(self.data.qpos[3:7])
+        position_ned = position_ned + self._noise(self._position_noise_std_m)
+        velocity_ned = velocity_ned + self._noise(self._velocity_noise_std_mps)
+        acceleration_ned = acceleration_ned + self._noise(self._linear_acceleration_noise_std_mps2)
+        quat_px4 = self._noisy_attitude_quat(mujoco_quat_to_px4_quat(self.data.qpos[3:7]))
 
         local_position = VehicleLocalPosition()
         local_position.timestamp = timestamp_us
@@ -222,13 +294,18 @@ class MujocoPx4Bridge(Node):
         attitude = VehicleAttitude()
         attitude.timestamp = timestamp_us
         attitude.timestamp_sample = timestamp_us
-        attitude.q = [float(v) for v in mujoco_quat_to_px4_quat(self.data.qpos[3:7])]
+        quat_px4 = self._noisy_attitude_quat(mujoco_quat_to_px4_quat(self.data.qpos[3:7]))
+        attitude.q = [float(v) for v in quat_px4]
         self.attitude_pub.publish(attitude)
 
     def _publish_angular_velocity(self):
         timestamp_us = self._now_us()
         angular_velocity_frd = flu_to_frd(self._angular_velocity_flu())
         angular_acceleration_frd = self._angular_acceleration_frd(angular_velocity_frd)
+        angular_velocity_frd = angular_velocity_frd + self._noise(self._angular_velocity_noise_std_radps)
+        angular_acceleration_frd = angular_acceleration_frd + self._noise(
+            self._angular_acceleration_noise_std_radps2
+        )
 
         angular_velocity = VehicleAngularVelocity()
         angular_velocity.timestamp = timestamp_us
