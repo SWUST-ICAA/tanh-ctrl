@@ -1,22 +1,24 @@
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include <flat_trajectory_msgs/msg/flat_trajectory_reference.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
-#include <flat_trajectory_msgs/msg/flat_trajectory_reference.hpp>
 
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 
-std::array<double, 3> loadVector3(
-    rclcpp::Node& node, const std::string& name, const std::array<double, 3>& fallback) {
+std::array<double, 3> loadVector3(rclcpp::Node &node, const std::string &name,
+                                  const std::array<double, 3> &fallback) {
   const auto values = node.get_parameter(name).as_double_array();
   if (values.size() != 3) {
-    RCLCPP_WARN(node.get_logger(), "%s must have length 3; using fallback.", name.c_str());
+    RCLCPP_WARN(node.get_logger(), "%s must have length 3; using fallback.",
+                name.c_str());
     return fallback;
   }
   return {values[0], values[1], values[2]};
@@ -26,27 +28,69 @@ double clampPositive(double value, double fallback) {
   return value > 0.0 ? value : fallback;
 }
 
-}  // namespace
+struct TimeScale {
+  double tau{0.0};
+  double tau_dot{1.0};
+  double tau_ddot{0.0};
+  double tau_dddot{0.0};
+  double tau_ddddot{0.0};
+};
+
+TimeScale smoothStartupTime(double t, double smoothing_s) {
+  if (smoothing_s <= 0.0 || t >= smoothing_s) {
+    return {t, 1.0, 0.0, 0.0, 0.0};
+  }
+
+  const double r = smoothing_s;
+  const double u = std::clamp(t / r, 0.0, 1.0);
+  const double u2 = u * u;
+  const double u3 = u2 * u;
+  const double u4 = u3 * u;
+  const double u5 = u4 * u;
+  const double u6 = u5 * u;
+  const double u7 = u6 * u;
+  const double u8 = u7 * u;
+  const double u9 = u8 * u;
+
+  const double s = 70.0 * u5 - 224.0 * u6 + 280.0 * u7 - 160.0 * u8 + 35.0 * u9;
+  const double ds =
+      350.0 * u4 - 1344.0 * u5 + 1960.0 * u6 - 1280.0 * u7 + 315.0 * u8;
+  const double dds =
+      1400.0 * u3 - 6720.0 * u4 + 11760.0 * u5 - 8960.0 * u6 + 2520.0 * u7;
+  const double ddds =
+      4200.0 * u2 - 26880.0 * u3 + 58800.0 * u4 - 53760.0 * u5 + 17640.0 * u6;
+  const double dddds =
+      8400.0 * u - 80640.0 * u2 + 235200.0 * u3 - 268800.0 * u4 + 105840.0 * u5;
+
+  return {r * s, ds, dds / r, ddds / (r * r), dddds / (r * r * r)};
+}
+
+} // namespace
 
 class LissajousTrajectoryPublisher : public rclcpp::Node {
- public:
+public:
   LissajousTrajectoryPublisher() : Node("lissajous_traj_pub") {
     declareParameters();
     loadParameters();
     createRosInterfaces();
   }
 
- private:
+private:
   void declareParameters() {
-    this->declare_parameter<std::string>("topics.reference", "/tanh_ctrl/reference");
-    this->declare_parameter<std::string>("topics.start_tracking", "/mission/start_tracking");
+    this->declare_parameter<std::string>("topics.reference",
+                                         "/tanh_ctrl/reference");
+    this->declare_parameter<std::string>("topics.start_tracking",
+                                         "/mission/start_tracking");
     this->declare_parameter<std::string>("frame_id", "ned");
     this->declare_parameter<bool>("require_start_signal", true);
     this->declare_parameter<bool>("start_enabled", false);
     this->declare_parameter<double>("rate_hz", 100.0);
-    this->declare_parameter<std::vector<double>>("origin_ned", {0.0, 0.0, -1.0});
-    this->declare_parameter<std::vector<double>>("amplitude_ned", {0.8, 0.5, 0.0});
+    this->declare_parameter<std::vector<double>>("origin_ned",
+                                                 {0.0, 0.0, -1.0});
+    this->declare_parameter<std::vector<double>>("amplitude_ned",
+                                                 {0.8, 0.5, 0.0});
     this->declare_parameter<double>("period_s", 12.0);
+    this->declare_parameter<double>("startup_smoothing_s", 2.0);
     this->declare_parameter<double>("x_harmonic", 1.0);
     this->declare_parameter<double>("y_harmonic", 2.0);
     this->declare_parameter<double>("z_harmonic", 1.0);
@@ -58,14 +102,19 @@ class LissajousTrajectoryPublisher : public rclcpp::Node {
 
   void loadParameters() {
     reference_topic_ = this->get_parameter("topics.reference").as_string();
-    start_tracking_topic_ = this->get_parameter("topics.start_tracking").as_string();
+    start_tracking_topic_ =
+        this->get_parameter("topics.start_tracking").as_string();
     frame_id_ = this->get_parameter("frame_id").as_string();
-    require_start_signal_ = this->get_parameter("require_start_signal").as_bool();
+    require_start_signal_ =
+        this->get_parameter("require_start_signal").as_bool();
     enabled_ = this->get_parameter("start_enabled").as_bool();
     rate_hz_ = clampPositive(this->get_parameter("rate_hz").as_double(), 100.0);
     origin_ned_ = loadVector3(*this, "origin_ned", {0.0, 0.0, -1.0});
     amplitude_ned_ = loadVector3(*this, "amplitude_ned", {0.8, 0.5, 0.0});
-    period_s_ = clampPositive(this->get_parameter("period_s").as_double(), 12.0);
+    period_s_ =
+        clampPositive(this->get_parameter("period_s").as_double(), 12.0);
+    startup_smoothing_s_ =
+        std::max(0.0, this->get_parameter("startup_smoothing_s").as_double());
     harmonics_ = {
         this->get_parameter("x_harmonic").as_double(),
         this->get_parameter("y_harmonic").as_double(),
@@ -80,10 +129,12 @@ class LissajousTrajectoryPublisher : public rclcpp::Node {
   }
 
   void createRosInterfaces() {
-    reference_pub_ = this->create_publisher<flat_trajectory_msgs::msg::FlatTrajectoryReference>(
+    reference_pub_ = this->create_publisher<
+        flat_trajectory_msgs::msg::FlatTrajectoryReference>(
         reference_topic_, rclcpp::QoS(rclcpp::KeepLast(10)));
 
-    const auto start_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+    const auto start_qos =
+        rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     start_tracking_sub_ = this->create_subscription<std_msgs::msg::Bool>(
         start_tracking_topic_, start_qos,
         [this](const std_msgs::msg::Bool::SharedPtr msg) {
@@ -115,6 +166,7 @@ class LissajousTrajectoryPublisher : public rclcpp::Node {
     }
 
     const double t = std::max(0.0, (this->now() - start_time_).seconds());
+    const TimeScale time_scale = smoothStartupTime(t, startup_smoothing_s_);
     const double base_omega = 2.0 * kPi / period_s_;
 
     flat_trajectory_msgs::msg::FlatTrajectoryReference ref;
@@ -132,13 +184,33 @@ class LissajousTrajectoryPublisher : public rclcpp::Node {
 
     for (int axis = 0; axis < 3; ++axis) {
       const double omega = base_omega * harmonics_[axis];
-      const double angle = omega * t + phases_[axis];
+      const double angle = omega * time_scale.tau + phases_[axis];
       const double amplitude = amplitude_ned_[axis];
-      position[axis] = origin_ned_[axis] + amplitude * std::sin(angle);
-      velocity[axis] = amplitude * omega * std::cos(angle);
-      acceleration[axis] = -amplitude * omega * omega * std::sin(angle);
-      jerk[axis] = -amplitude * omega * omega * omega * std::cos(angle);
-      snap[axis] = amplitude * omega * omega * omega * omega * std::sin(angle);
+      const double sin_angle = std::sin(angle);
+      const double cos_angle = std::cos(angle);
+      const double base_velocity = amplitude * omega * cos_angle;
+      const double base_acceleration = -amplitude * omega * omega * sin_angle;
+      const double base_jerk = -amplitude * omega * omega * omega * cos_angle;
+      const double base_snap =
+          amplitude * omega * omega * omega * omega * sin_angle;
+
+      position[axis] = origin_ned_[axis] + amplitude * sin_angle;
+      velocity[axis] = base_velocity * time_scale.tau_dot;
+      acceleration[axis] =
+          base_acceleration * time_scale.tau_dot * time_scale.tau_dot +
+          base_velocity * time_scale.tau_ddot;
+      jerk[axis] =
+          base_jerk * time_scale.tau_dot * time_scale.tau_dot *
+              time_scale.tau_dot +
+          3.0 * base_acceleration * time_scale.tau_dot * time_scale.tau_ddot +
+          base_velocity * time_scale.tau_dddot;
+      snap[axis] =
+          base_snap * std::pow(time_scale.tau_dot, 4.0) +
+          6.0 * base_jerk * time_scale.tau_dot * time_scale.tau_dot *
+              time_scale.tau_ddot +
+          3.0 * base_acceleration * time_scale.tau_ddot * time_scale.tau_ddot +
+          4.0 * base_acceleration * time_scale.tau_dot * time_scale.tau_dddot +
+          base_velocity * time_scale.tau_ddddot;
     }
 
     ref.position_ned.x = position[0];
@@ -167,6 +239,7 @@ class LissajousTrajectoryPublisher : public rclcpp::Node {
   bool enabled_{false};
   double rate_hz_{100.0};
   double period_s_{12.0};
+  double startup_smoothing_s_{2.0};
   double yaw_rad_{0.0};
   std::array<double, 3> origin_ned_{0.0, 0.0, -1.0};
   std::array<double, 3> amplitude_ned_{0.8, 0.5, 0.0};
@@ -174,11 +247,12 @@ class LissajousTrajectoryPublisher : public rclcpp::Node {
   std::array<double, 3> phases_{0.0, 0.0, 0.0};
   rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
   rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Publisher<flat_trajectory_msgs::msg::FlatTrajectoryReference>::SharedPtr reference_pub_;
+  rclcpp::Publisher<flat_trajectory_msgs::msg::FlatTrajectoryReference>::
+      SharedPtr reference_pub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr start_tracking_sub_;
 };
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<LissajousTrajectoryPublisher>());
   rclcpp::shutdown();
