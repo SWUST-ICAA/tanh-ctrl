@@ -1,0 +1,31 @@
+# Local editor state
+.vscode/
+.idea/
+
+# ROS 2 / colcon build artifacts
+build/
+install/
+log/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Makefile
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Native build outputs
+*.a
+*.dll
+*.dylib
+*.exe
+*.o
+*.so
+
+# Logs
+*.log
