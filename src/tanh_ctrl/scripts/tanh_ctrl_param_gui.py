@@ -13,6 +13,8 @@ DOUBLE_PARAMETERS = [
     "model.mass",
     "model.gravity",
     "model.max_collective_thrust",
+    "model.diagonal_wheelbase_m",
+    "model.moment_to_thrust_ratio_m",
     "position.horizontal.M_P",
     "position.vertical.M_P",
     "position.horizontal.K_P",
@@ -47,7 +49,6 @@ DOUBLE_PARAMETERS = [
 ]
 
 DOUBLE_ARRAY_PARAMETERS = [
-    "model.max_torque_body",
     "model.inertia_diag",
 ]
 

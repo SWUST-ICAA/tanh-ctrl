@@ -20,6 +20,8 @@ constexpr bool kAutoArm = false;
 constexpr int kOffboardWarmup = 10;
 constexpr double kMinLoopDt = 1e-4;
 constexpr double kMaxLoopDt = 0.1;
+constexpr double kDefaultDiagonalWheelbaseM = 0.25;
+constexpr double kDefaultMomentToThrustRatioM = 0.3;
 
 /************ time and math tools ***************/
 
@@ -119,9 +121,26 @@ float clampedAxis(double value) {
   return static_cast<float>(std::clamp(value, -1.0, 1.0));
 }
 
-float normalizedTorqueAxis(double torque_n_m, double max_torque_n_m) {
-  const double scale = std::max(1.0e-6, std::abs(max_torque_n_m));
+float normalizedTorqueAxis(double torque_n_m, double torque_limit_n_m) {
+  const double scale = std::max(1.0e-6, std::abs(torque_limit_n_m));
   return clampedAxis(torque_n_m / scale);
+}
+
+Eigen::Vector3d
+computeTorqueLimitsFromCollectiveThrust(double max_collective_thrust_n,
+                                        double diagonal_wheelbase_m,
+                                        double moment_to_thrust_ratio_m) {
+  const double max_collective_thrust =
+      std::max(1.0e-6, max_collective_thrust_n);
+  const double diagonal_wheelbase = std::max(1.0e-6, diagonal_wheelbase_m);
+  const double moment_to_thrust_ratio =
+      std::max(1.0e-6, moment_to_thrust_ratio_m);
+  const double arm_xy_m = diagonal_wheelbase / (2.0 * std::sqrt(2.0));
+  const double max_motor_thrust_n = max_collective_thrust / 4.0;
+  const double roll_pitch_limit_n_m = 2.0 * arm_xy_m * max_motor_thrust_n;
+  const double yaw_limit_n_m = moment_to_thrust_ratio * max_collective_thrust;
+  return Eigen::Vector3d(roll_pitch_limit_n_m, roll_pitch_limit_n_m,
+                         yaw_limit_n_m);
 }
 
 px4_msgs::msg::OffboardControlMode
@@ -253,8 +272,10 @@ void TanhNode::declareParameters() {
   this->declare_parameter<double>("model.mass", 0.813);
   this->declare_parameter<double>("model.gravity", 9.81);
   this->declare_parameter<double>("model.max_collective_thrust", 59.2);
-  this->declare_parameter<std::vector<double>>("model.max_torque_body",
-                                               {2.616294, 2.616294, 17.76});
+  this->declare_parameter<double>("model.diagonal_wheelbase_m",
+                                  kDefaultDiagonalWheelbaseM);
+  this->declare_parameter<double>("model.moment_to_thrust_ratio_m",
+                                  kDefaultMomentToThrustRatioM);
   this->declare_parameter<std::vector<double>>(
       "model.inertia_diag", {0.00191426, 0.002370211, 0.003600705});
 
@@ -427,22 +448,18 @@ void TanhNode::loadRuntimeTuningParams() {
       this->get_parameter("filters.angular_velocity_disturbance_cutoff_hz")
           .as_double());
 
-  wrench_setpoint_config_.max_collective_thrust_n = std::max(
+  const double max_collective_thrust_n = std::max(
       1.0e-6, this->get_parameter("model.max_collective_thrust").as_double());
-
-  const auto max_torque_body =
-      this->get_parameter("model.max_torque_body").as_double_array();
-  if (max_torque_body.size() != 3) {
-    RCLCPP_WARN(this->get_logger(), "model.max_torque_body must have length 3; "
-                                    "using unit torque normalization.");
-    wrench_setpoint_config_.max_torque_body_n_m = {1.0, 1.0, 1.0};
-  } else {
-    wrench_setpoint_config_.max_torque_body_n_m = {
-        std::max(1.0e-6, std::abs(max_torque_body[0])),
-        std::max(1.0e-6, std::abs(max_torque_body[1])),
-        std::max(1.0e-6, std::abs(max_torque_body[2])),
-    };
-  }
+  const double diagonal_wheelbase_m = std::max(
+      1.0e-6, this->get_parameter("model.diagonal_wheelbase_m").as_double());
+  const double moment_to_thrust_ratio_m = std::max(
+      1.0e-6,
+      this->get_parameter("model.moment_to_thrust_ratio_m").as_double());
+  wrench_setpoint_config_.max_collective_thrust_n = max_collective_thrust_n;
+  wrench_setpoint_config_.torque_limit_body_n_m =
+      computeTorqueLimitsFromCollectiveThrust(max_collective_thrust_n,
+                                              diagonal_wheelbase_m,
+                                              moment_to_thrust_ratio_m);
 }
 
 /***************************************/
@@ -718,11 +735,11 @@ void TanhNode::publishWrenchSetpoint(const ControlOutput &out, uint64_t now_us,
   torque_sp.timestamp_sample = sample_us;
   torque_sp.xyz = {
       normalizedTorqueAxis(out.torque_body.x(),
-                           wrench_setpoint_config_.max_torque_body_n_m[0]),
+                           wrench_setpoint_config_.torque_limit_body_n_m.x()),
       normalizedTorqueAxis(out.torque_body.y(),
-                           wrench_setpoint_config_.max_torque_body_n_m[1]),
+                           wrench_setpoint_config_.torque_limit_body_n_m.y()),
       normalizedTorqueAxis(out.torque_body.z(),
-                           wrench_setpoint_config_.max_torque_body_n_m[2]),
+                           wrench_setpoint_config_.torque_limit_body_n_m.z()),
   };
 
   thrust_sp_pub_->publish(thrust_sp);

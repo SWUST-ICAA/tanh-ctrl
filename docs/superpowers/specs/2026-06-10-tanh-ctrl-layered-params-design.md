@@ -55,7 +55,7 @@ The node will keep startup parameter declaration in one place, then add a 10Hz t
 - Position gains: `M_P`, `K_P`, `M_V`, `K_V`, `K_Acceleration`, observer `P_V`, observer `L_V`.
 - Attitude gains: `M_Angle`, `K_Angle`, `M_AngularVelocity`, `K_AngularVelocity`, `K_AngularAcceleration`, observer `P_AngularVelocity`, observer `L_AngularVelocity`.
 - Filters: `filters.velocity_disturbance_cutoff_hz`, `filters.angular_velocity_disturbance_cutoff_hz`.
-- Model values needed by controller output scaling: mass, gravity, inertia, max collective thrust, and max body torque.
+- Model values needed by controller output scaling: mass, gravity, inertia, max collective thrust, diagonal wheelbase, and moment-to-thrust ratio. Body torque limits are computed internally from these mixer geometry parameters.
 
 Mission parameters and topic names remain startup configuration. They should not be part of the fast tuning loop unless a future requirement explicitly asks for that.
 

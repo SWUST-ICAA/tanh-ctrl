@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <string>
 
 #include <flat_trajectory_msgs/msg/flat_trajectory_reference.hpp>
@@ -34,7 +33,7 @@ public:
 private:
   struct WrenchSetpointConfig {
     double max_collective_thrust_n{1.0};
-    std::array<double, 3> max_torque_body_n_m{1.0, 1.0, 1.0};
+    Eigen::Vector3d torque_limit_body_n_m{Eigen::Vector3d::Ones()};
   };
 
   void declareParameters();

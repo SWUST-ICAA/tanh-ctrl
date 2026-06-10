@@ -7,8 +7,9 @@ tanh_ctrl:
     model:
       mass: 0.813
       gravity: 9.794
-      max_collective_thrust: 59.2
-      max_torque_body: [2.616294, 2.616294, 17.76]
+      max_collective_thrust: 50.0
+      diagonal_wheelbase_m: 0.25
+      moment_to_thrust_ratio_m: 0.3
       inertia_diag: [0.00191426, 0.002370211, 0.003600705]
 
     mission:

@@ -76,7 +76,7 @@
 
 - [ ] **Step 1: Split startup and runtime parameter loading**
 
-  Keep topic and mission parameters in a startup-only loader. Add a runtime loader for controller gains, filter cutoff values, mass, gravity, inertia, max collective thrust, and max body torque.
+  Keep topic and mission parameters in a startup-only loader. Add a runtime loader for controller gains, filter cutoff values, mass, gravity, inertia, max collective thrust, diagonal wheelbase, and moment-to-thrust ratio. Compute body torque limits internally from those mixer geometry parameters.
 
 - [ ] **Step 2: Add a 10Hz timer**
 
