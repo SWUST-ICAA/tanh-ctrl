@@ -196,6 +196,10 @@ class MujocoPx4Bridge(Node):
             mujoco.mj_resetDataKeyframe(self.model, self.data, key_id)
         initial_position_ned = np.asarray(self.get_parameter("initial_position_ned").value, dtype=float)
         self.data.qpos[0:3] = ned_to_enu(initial_position_ned)
+        # MuJoCo ENU/FLU yaw +90deg maps to PX4 NED/FRD yaw 0deg.
+        self.data.qpos[3:7] = np.array(
+            [np.sqrt(0.5), 0.0, 0.0, np.sqrt(0.5)], dtype=float
+        )
         mujoco.mj_forward(self.model, self.data)
 
     def _sensor_address(self, name):
