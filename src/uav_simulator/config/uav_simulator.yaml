@@ -6,7 +6,7 @@ uav_simulator:
     control_rate_hz: 800.0
     mujoco_substeps: 2
     local_position_rate_hz: 100.0
-    attitude_rate_hz: 250.0
+    attitude_rate_hz: 400.0
     angular_velocity_rate_hz: 800.0
     noise:
       enabled: true

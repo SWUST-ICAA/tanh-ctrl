@@ -10,6 +10,6 @@ lissajous_traj_pub:
     origin_ned: [0.0, 0.0, -1.0]
     amplitude_x_m: 3.0
     amplitude_y_m: 1.5
-    period_s: 12.0
+    period_s: 10.0
     startup_smoothing_s: 2.0
     yaw_rad: 0.0
