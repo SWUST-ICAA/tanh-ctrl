@@ -1,0 +1,63 @@
+tanh_ctrl:
+  ros__parameters:
+    topics:
+      reference: /tanh_ctrl/reference
+      start_tracking: /mission/start_tracking
+
+    model:
+      mass: 0.813
+      gravity: 9.794
+      max_collective_thrust: 59.2
+      inertia_diag: [0.00191, 0.00237, 0.00360]
+
+    mission:
+      takeoff_target_z: -1.0
+      takeoff_z_threshold: 0.2
+      takeoff_hold_time_s: 2.0
+      reference_timeout_s: 0.3  
+      request_interval_s: 1.0   
+
+    position:
+      horizontal:
+        M_P: 0.6
+        K_P: 10.0
+        M_V: 8.5
+        K_V: 1.2
+        K_Acceleration: 1.2
+        observer:
+          P_V: 2.5
+          L_V: 1.0
+      vertical:
+        M_P: 0.8
+        K_P: 7.0
+        M_V: 6.0
+        K_V: 1.0
+        K_Acceleration: 1.0
+        observer:
+          P_V: 4.2
+          L_V: 2.5
+      max_tilt_deg: 35.0
+
+    attitude:
+      tilt:
+        M_Angle: 1.0
+        K_Angle: 18.0
+        M_AngularVelocity: 38.0
+        K_AngularVelocity: 1.25
+        K_AngularAcceleration: 1.282
+        observer:
+          P_AngularVelocity: 20.0
+          L_AngularVelocity: 2.5
+      yaw:
+        M_Angle: 1.0
+        K_Angle: 10.0
+        M_AngularVelocity: 15.0
+        K_AngularVelocity: 3.0
+        K_AngularAcceleration: 0.2
+        observer:
+          P_AngularVelocity: 15.0
+          L_AngularVelocity: 2.0
+
+    filters:
+      velocity_disturbance_cutoff_hz: 50.0
+      angular_velocity_disturbance_cutoff_hz: 30.0
