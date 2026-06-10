@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>tanh_ctrl</name>
+  <name>traj_pub</name>
   <version>0.0.1</version>
-  <description>基于 tanh_ctrl 的 PX4 四旋翼鲁棒控制器，向 PX4 输出总推力和机体系力矩。</description>
+  <description>C++ reference trajectory publisher for the tanh controller.</description>
 
   <maintainer email="todo@todo.com">todo</maintainer>
   <license>MIT</license>
@@ -10,12 +10,8 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>px4_msgs</depend>
   <depend>std_msgs</depend>
   <depend>flat_trajectory_msgs</depend>
-  <!-- Eigen3 是系统/ROS CMake 包 -->
-  <build_depend>eigen3_cmake_module</build_depend>
-  <exec_depend>eigen3_cmake_module</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

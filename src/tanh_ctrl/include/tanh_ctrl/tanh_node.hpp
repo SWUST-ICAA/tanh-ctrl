@@ -12,8 +12,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <string>
+#include <flat_trajectory_msgs/msg/flat_trajectory_reference.hpp>
 
-#include "tanh_ctrl/msg/flat_trajectory_reference.hpp"
 #include "tanh_ctrl/px4_bridge.hpp"
 #include "tanh_ctrl/tanh_controller.hpp"
 
@@ -27,7 +27,7 @@ enum MissionState {
   TRACKING,
 };
 
-TrajectoryRef trajectoryReferenceFromMsg(const msg::FlatTrajectoryReference& msg);
+TrajectoryRef trajectoryReferenceFromMsg(const flat_trajectory_msgs::msg::FlatTrajectoryReference& msg);
 
 TrajectoryRef makeHoldReference(const VehicleState& state, double target_z_ned, double yaw);
 
@@ -48,7 +48,7 @@ class TanhNode : public rclcpp::Node {
   void attitudeCallback(const px4_msgs::msg::VehicleAttitude::SharedPtr msg);
   void angularVelocityCallback(const px4_msgs::msg::VehicleAngularVelocity::SharedPtr msg);
   void vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg);
-  void referenceCallback(const msg::FlatTrajectoryReference::SharedPtr msg);
+  void referenceCallback(const flat_trajectory_msgs::msg::FlatTrajectoryReference::SharedPtr msg);
   void positionControlLoop(uint64_t sample_us);
   void attitudeControlLoop(uint64_t sample_us);
 
@@ -73,7 +73,7 @@ class TanhNode : public rclcpp::Node {
   rclcpp::Subscription<px4_msgs::msg::VehicleAttitude>::SharedPtr attitude_sub_;
   rclcpp::Subscription<px4_msgs::msg::VehicleAngularVelocity>::SharedPtr angular_velocity_sub_;
   rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
-  rclcpp::Subscription<msg::FlatTrajectoryReference>::SharedPtr reference_sub_;
+  rclcpp::Subscription<flat_trajectory_msgs::msg::FlatTrajectoryReference>::SharedPtr reference_sub_;
 
   rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboard_mode_pub_;
   rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_pub_;

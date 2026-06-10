@@ -1,0 +1,9 @@
+uav_simulator:
+  ros__parameters:
+    use_viewer: true
+    initial_position_ned: [0.0, 0.0, -0.3]
+    control_rate_hz: 800.0
+    mujoco_substeps: 2
+    local_position_rate_hz: 100.0
+    attitude_rate_hz: 250.0
+    angular_velocity_rate_hz: 800.0

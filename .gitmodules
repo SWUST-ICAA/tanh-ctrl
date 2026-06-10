@@ -1,0 +1,4 @@
+[submodule "src/utils/px4_msgs"]
+	path = src/utils/px4_msgs
+	url = https://github.com/PX4/px4_msgs.git
+	branch = main

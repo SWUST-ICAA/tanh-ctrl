@@ -44,7 +44,7 @@ void logMissionTransition(rclcpp::Logger logger, MissionState from, MissionState
 
 }  // namespace
 
-TrajectoryRef trajectoryReferenceFromMsg(const msg::FlatTrajectoryReference& msg) {
+TrajectoryRef trajectoryReferenceFromMsg(const flat_trajectory_msgs::msg::FlatTrajectoryReference& msg) {
   TrajectoryRef ref{};
   ref.position_ned = eigenFromXyz(msg.position_ned);
   ref.velocity_ned = eigenFromXyz(msg.velocity_ned);
@@ -104,10 +104,11 @@ void TanhNode::declareParameters() {
   this->declare_parameter<double>("mission.reference_timeout_s", 0.3);
   this->declare_parameter<double>("mission.request_interval_s", 1.0);
 
-  this->declare_parameter<double>("model.mass", 2.0643076923076915);
+  this->declare_parameter<double>("model.mass", 0.813);
   this->declare_parameter<double>("model.gravity", 9.81);
-  this->declare_parameter<double>("model.max_collective_thrust", 34.19432);
-  this->declare_parameter<std::vector<double>>("model.inertia_diag", {0.02384669, 0.02394962, 0.04399995});
+  this->declare_parameter<double>("model.max_collective_thrust", 59.2);
+  this->declare_parameter<std::vector<double>>("model.max_torque_body", {2.616294, 2.616294, 17.76});
+  this->declare_parameter<std::vector<double>>("model.inertia_diag", {0.00191426, 0.002370211, 0.003600705});
 
   declareAxisPair(*this, "position.horizontal.M_P", 2.5, "position.vertical.M_P", 2.0);
   declareAxisPair(*this, "position.horizontal.K_P", 1.0, "position.vertical.K_P", 1.0);
@@ -139,7 +140,7 @@ void TanhNode::createRosInterfaces() {
   attitude_sub_ = this->create_subscription<px4_msgs::msg::VehicleAttitude>("/fmu/out/vehicle_attitude", qos_px4_out, std::bind(&TanhNode::attitudeCallback, this, std::placeholders::_1));
   angular_velocity_sub_ = this->create_subscription<px4_msgs::msg::VehicleAngularVelocity>("/fmu/out/vehicle_angular_velocity", qos_px4_out, std::bind(&TanhNode::angularVelocityCallback, this, std::placeholders::_1));
   vehicle_status_sub_ = this->create_subscription<px4_msgs::msg::VehicleStatus>("/fmu/out/vehicle_status_v1", qos_px4_out, std::bind(&TanhNode::vehicleStatusCallback, this, std::placeholders::_1));
-  reference_sub_ = this->create_subscription<msg::FlatTrajectoryReference>(this->get_parameter("topics.reference").as_string(), qos_default, std::bind(&TanhNode::referenceCallback, this, std::placeholders::_1));
+  reference_sub_ = this->create_subscription<flat_trajectory_msgs::msg::FlatTrajectoryReference>(this->get_parameter("topics.reference").as_string(), qos_default, std::bind(&TanhNode::referenceCallback, this, std::placeholders::_1));
 
   offboard_mode_pub_ = this->create_publisher<px4_msgs::msg::OffboardControlMode>("/fmu/in/offboard_control_mode", qos_default);
   vehicle_command_pub_ = this->create_publisher<px4_msgs::msg::VehicleCommand>("/fmu/in/vehicle_command", qos_default);
@@ -205,6 +206,18 @@ void TanhNode::loadParams() {
 
   wrench_setpoint_config_.max_collective_thrust_n =
       std::max(1.0e-6, this->get_parameter("model.max_collective_thrust").as_double());
+
+  const auto max_torque_body = this->get_parameter("model.max_torque_body").as_double_array();
+  if (max_torque_body.size() != 3) {
+    RCLCPP_WARN(this->get_logger(), "model.max_torque_body must have length 3; using unit torque normalization.");
+    wrench_setpoint_config_.max_torque_body_n_m = {1.0, 1.0, 1.0};
+  } else {
+    wrench_setpoint_config_.max_torque_body_n_m = {
+        std::max(1.0e-6, std::abs(max_torque_body[0])),
+        std::max(1.0e-6, std::abs(max_torque_body[1])),
+        std::max(1.0e-6, std::abs(max_torque_body[2])),
+    };
+  }
 }
 
 void TanhNode::localPositionCallback(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg) {
@@ -290,7 +303,7 @@ void TanhNode::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedP
   }
 }
 
-void TanhNode::referenceCallback(const msg::FlatTrajectoryReference::SharedPtr msg) {
+void TanhNode::referenceCallback(const flat_trajectory_msgs::msg::FlatTrajectoryReference::SharedPtr msg) {
   if (!msg) {
     return;
   }
@@ -532,16 +545,16 @@ void TanhNode::updateMissionStateMachine(uint64_t now_us) {
 
     case WAIT_FOR_ARMING:
       updateCurrentHoldReference();
-      if (manual_arm_detected_ && is_armed_ && !is_offboard_) {
+      if (is_armed_ && !is_offboard_) {
         last_arm_request_us_ = 0;
-        logMissionTransition(this->get_logger(), mission_state_, WAIT_FOR_OFFBOARD, "manual arm detected");
+        logMissionTransition(this->get_logger(), mission_state_, WAIT_FOR_OFFBOARD, "vehicle armed");
         mission_state_ = WAIT_FOR_OFFBOARD;
-      } else if (manual_arm_detected_ && is_armed_ && is_offboard_) {
+      } else if (is_armed_ && is_offboard_) {
         last_arm_request_us_ = 0;
         updateHoldReference(mission_takeoff_target_z_);
         resetControllerRuntimeState();
         resetTakeoffProgress();
-        logMissionTransition(this->get_logger(), mission_state_, TAKEOFF, "manual arm detected in offboard");
+        logMissionTransition(this->get_logger(), mission_state_, TAKEOFF, "vehicle armed in offboard");
         mission_state_ = TAKEOFF;
       }
       break;
@@ -592,7 +605,7 @@ void TanhNode::publishWrenchSetpoint(const ControlOutput& out, uint64_t now_us, 
   }
 
   thrust_sp_pub_->publish(makeVehicleThrustSetpoint(out, wrench_setpoint_config_, now_us, sample_us));
-  torque_sp_pub_->publish(makeVehicleTorqueSetpoint(out, now_us, sample_us));
+  torque_sp_pub_->publish(makeVehicleTorqueSetpoint(out, wrench_setpoint_config_, now_us, sample_us));
 }
 
 }  // namespace tanh_ctrl
