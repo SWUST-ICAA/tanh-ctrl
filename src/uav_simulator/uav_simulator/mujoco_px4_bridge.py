@@ -134,26 +134,10 @@ class MujocoPx4Bridge(Node):
         try:
             import mujoco.viewer
 
-            viewer = mujoco.viewer.launch_passive(self.model, self.data)
-            self._set_viewer_font_scale(viewer)
-            return viewer
+            return mujoco.viewer.launch_passive(self.model, self.data)
         except Exception as exc:
             self.get_logger().warn(f"MuJoCo viewer disabled: {exc}")
             return None
-
-    def _set_viewer_font_scale(self, viewer):
-        try:
-            font_scale = mujoco.mjtFontScale.mjFONTSCALE_100
-
-            get_sim = getattr(viewer, "_get_sim", None)
-            if callable(get_sim):
-                sim = get_sim()
-                if sim is not None and hasattr(sim, "font"):
-                    sim.font = int(font_scale.value / 50) - 1
-
-            viewer.set_texts((font_scale, mujoco.mjtGridPos.mjGRID_TOPLEFT, "", ""))
-        except Exception as exc:
-            self.get_logger().warn(f"Unable to set MuJoCo viewer font scale to 100%: {exc}")
 
     def _now_us(self):
         return int(self.data.time * 1_000_000)
