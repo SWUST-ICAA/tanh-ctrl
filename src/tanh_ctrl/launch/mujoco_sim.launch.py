@@ -19,7 +19,7 @@ def generate_launch_description():
     model_path = simulator_share / "models" / "real_x2" / "scene.xml"
 
     use_viewer_arg = DeclareLaunchArgument("use_viewer", default_value="true")
-    use_param_gui_arg = DeclareLaunchArgument("use_param_gui", default_value="false")
+    use_param_gui_arg = DeclareLaunchArgument("use_param_gui", default_value="true")
 
     return LaunchDescription(
         [
