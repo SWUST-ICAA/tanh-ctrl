@@ -2,6 +2,7 @@ uav_simulator:
   ros__parameters:
     use_viewer: true
     initial_position_ned: [0.0, 0.0, -0.3]
+    integrator: implicitfast
     control_rate_hz: 800.0
     mujoco_substeps: 2
     local_position_rate_hz: 100.0

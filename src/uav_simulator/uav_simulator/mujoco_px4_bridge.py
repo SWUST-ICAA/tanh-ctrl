@@ -35,6 +35,10 @@ def positive_rate(value, fallback):
     return rate
 
 
+def normalized_integrator_name(value):
+    return str(value).strip().lower().replace("_", "")
+
+
 def nonnegative_std(value):
     return max(0.0, float(value))
 
@@ -69,6 +73,10 @@ class MujocoPx4Bridge(Node):
         self._load_noise_parameters()
 
         self.model = mujoco.MjModel.from_xml_path(self._model_path())
+        (
+            self._integrator_name,
+            self.model.opt.integrator,
+        ) = self._integrator_config()
         self.model.opt.timestep = 1.0 / (self._control_rate_hz * self._mujoco_substeps)
         self.data = mujoco.MjData(self.model)
         self._reset_model_pose()
@@ -115,13 +123,15 @@ class MujocoPx4Bridge(Node):
         self.get_logger().info(
             "Loaded MuJoCo model: "
             f"{self._model_path()} | control={self._control_rate_hz:.1f}Hz, "
-            f"substeps={self._mujoco_substeps}, timestep={self.model.opt.timestep:.6f}s"
+            f"substeps={self._mujoco_substeps}, timestep={self.model.opt.timestep:.6f}s, "
+            f"integrator={self._integrator_name}"
         )
 
     def _declare_parameters(self):
         self.declare_parameter("model_path", "")
         self.declare_parameter("use_viewer", True)
         self.declare_parameter("initial_position_ned", [0.0, 0.0, -0.3])
+        self.declare_parameter("integrator", "implicitfast")
         self.declare_parameter("control_rate_hz", 800.0)
         self.declare_parameter("mujoco_substeps", 2)
         self.declare_parameter("local_position_rate_hz", 100.0)
@@ -135,6 +145,27 @@ class MujocoPx4Bridge(Node):
         self.declare_parameter("noise.attitude_std_rad", 0.0015)
         self.declare_parameter("noise.angular_velocity_std_radps", 0.005)
         self.declare_parameter("noise.angular_acceleration_std_radps2", 0.05)
+
+    def _integrator_config(self):
+        options = {
+            "euler": ("euler", mujoco.mjtIntegrator.mjINT_EULER),
+            "rk4": ("rk4", mujoco.mjtIntegrator.mjINT_RK4),
+            "implicit": ("implicit", mujoco.mjtIntegrator.mjINT_IMPLICIT),
+            "implicitfast": (
+                "implicitfast",
+                mujoco.mjtIntegrator.mjINT_IMPLICITFAST,
+            ),
+        }
+        requested = normalized_integrator_name(self.get_parameter("integrator").value)
+        if requested in options:
+            return options[requested]
+
+        fallback = options["implicitfast"]
+        original = self.get_parameter("integrator").value
+        self.get_logger().warn(
+            f"Unknown MuJoCo integrator '{original}'; using '{fallback[0]}'."
+        )
+        return fallback
 
     def _load_noise_parameters(self):
         self._noise_enabled = bool(self.get_parameter("noise.enabled").value)
