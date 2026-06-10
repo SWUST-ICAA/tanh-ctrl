@@ -92,15 +92,19 @@ public:
                            double dt, ControlOutput *out);
 
 private:
-  struct Vec3LowPass {
+  struct Vec3ButterworthLowPass {
     Eigen::Vector3d cutoff_hz{Eigen::Vector3d::Zero()};
-    Eigen::Vector3d state{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d input_1{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d input_2{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d output_1{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d output_2{Eigen::Vector3d::Zero()};
     std::array<bool, 3> initialized{{false, false, false}};
   };
 
-  static void resetLowPass(Vec3LowPass &lpf);
-  static Eigen::Vector3d updateLowPass(const Eigen::Vector3d &input, double dt,
-                                       Vec3LowPass &lpf);
+  static void resetButterworthLowPass(Vec3ButterworthLowPass &lpf);
+  static Eigen::Vector3d updateButterworthLowPass(const Eigen::Vector3d &input,
+                                                  double dt,
+                                                  Vec3ButterworthLowPass &lpf);
 
   void computePosition(const VehicleState &state, const TrajectoryRef &ref,
                        double dt, Eigen::Vector3d *thrust_vec_ned);
@@ -120,8 +124,8 @@ private:
   Eigen::Vector3d angular_velocity_error_hat_body_{Eigen::Vector3d::Zero()};
   bool first_run_{true};
 
-  Vec3LowPass velocity_disturbance_lpf_{};
-  Vec3LowPass angular_velocity_disturbance_lpf_{};
+  Vec3ButterworthLowPass velocity_disturbance_lpf_{};
+  Vec3ButterworthLowPass angular_velocity_disturbance_lpf_{};
 };
 
 } // namespace tanh_ctrl

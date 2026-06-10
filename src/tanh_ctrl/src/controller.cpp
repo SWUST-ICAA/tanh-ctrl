@@ -17,6 +17,8 @@ constexpr double kSmallNorm = 1e-9;
 constexpr double kMinCollectiveThrust = 1e-6;
 constexpr double kMinThrustOverMass = 1e-3;
 constexpr double kCutoffChangeToleranceHz = 1e-9;
+constexpr double kButterworthSqrt2 = 1.41421356237309504880;
+constexpr double kMaxNormalizedCutoff = 0.45;
 
 /************ math tools ***************/
 
@@ -232,7 +234,7 @@ void TanhController::setVelocityDisturbanceLowPassHz(double cutoff_hz) {
   }
 
   velocity_disturbance_lpf_.cutoff_hz = cutoff;
-  resetLowPass(velocity_disturbance_lpf_);
+  resetButterworthLowPass(velocity_disturbance_lpf_);
 }
 
 void TanhController::setAngularVelocityDisturbanceLowPassHz(double cutoff_hz) {
@@ -244,7 +246,7 @@ void TanhController::setAngularVelocityDisturbanceLowPassHz(double cutoff_hz) {
   }
 
   angular_velocity_disturbance_lpf_.cutoff_hz = cutoff;
-  resetLowPass(angular_velocity_disturbance_lpf_);
+  resetButterworthLowPass(angular_velocity_disturbance_lpf_);
 }
 
 void TanhController::reset() {
@@ -252,48 +254,72 @@ void TanhController::reset() {
   angular_velocity_error_hat_body_.setZero();
   first_run_ = true;
 
-  resetLowPass(velocity_disturbance_lpf_);
-  resetLowPass(angular_velocity_disturbance_lpf_);
+  resetButterworthLowPass(velocity_disturbance_lpf_);
+  resetButterworthLowPass(angular_velocity_disturbance_lpf_);
 }
 
 /***************************************/
 
 /************ filters ***************/
 
-void TanhController::resetLowPass(Vec3LowPass &lpf) {
-  lpf.state.setZero();
+void TanhController::resetButterworthLowPass(Vec3ButterworthLowPass &lpf) {
+  lpf.input_1.setZero();
+  lpf.input_2.setZero();
+  lpf.output_1.setZero();
+  lpf.output_2.setZero();
   lpf.initialized = {{false, false, false}};
 }
 
-Eigen::Vector3d TanhController::updateLowPass(const Eigen::Vector3d &input,
-                                              double dt, Vec3LowPass &lpf) {
-  const auto updateScalarLowPass = [](double input_value, double cutoff_hz,
-                                      double dt_s, double *state,
-                                      bool *initialized) {
-    if (!state || !initialized || dt_s <= 0.0 || cutoff_hz <= 0.0) {
+Eigen::Vector3d TanhController::updateButterworthLowPass(
+    const Eigen::Vector3d &input, double dt, Vec3ButterworthLowPass &lpf) {
+  const auto updateScalarButterworth = [](double input_value, double cutoff_hz,
+                                          double dt_s, double *input_1,
+                                          double *input_2, double *output_1,
+                                          double *output_2, bool *initialized) {
+    if (!input_1 || !input_2 || !output_1 || !output_2 || !initialized ||
+        dt_s <= 0.0 || cutoff_hz <= 0.0) {
       return input_value;
     }
 
-    const double tau = 1.0 / (2.0 * M_PI * cutoff_hz);
-    const double alpha = dt_s / (tau + dt_s);
-
     if (!(*initialized)) {
-      *state = input_value;
+      *input_1 = input_value;
+      *input_2 = input_value;
+      *output_1 = input_value;
+      *output_2 = input_value;
       *initialized = true;
       return input_value;
     }
 
-    *state += alpha * (input_value - *state);
-    return *state;
+    const double normalized_cutoff =
+        std::clamp(cutoff_hz * dt_s, 1.0e-6, kMaxNormalizedCutoff);
+    const double k = std::tan(M_PI * normalized_cutoff);
+    const double k2 = k * k;
+    const double norm = 1.0 / (1.0 + kButterworthSqrt2 * k + k2);
+    const double b0 = k2 * norm;
+    const double b1 = 2.0 * b0;
+    const double b2 = b0;
+    const double a1 = 2.0 * (k2 - 1.0) * norm;
+    const double a2 = (1.0 - kButterworthSqrt2 * k + k2) * norm;
+
+    const double output = b0 * input_value + b1 * (*input_1) + b2 * (*input_2) -
+                          a1 * (*output_1) - a2 * (*output_2);
+    *input_2 = *input_1;
+    *input_1 = input_value;
+    *output_2 = *output_1;
+    *output_1 = output;
+    return output;
   };
 
   Eigen::Vector3d output;
-  output.x() = updateScalarLowPass(input.x(), lpf.cutoff_hz.x(), dt,
-                                   &lpf.state.x(), &lpf.initialized[0]);
-  output.y() = updateScalarLowPass(input.y(), lpf.cutoff_hz.y(), dt,
-                                   &lpf.state.y(), &lpf.initialized[1]);
-  output.z() = updateScalarLowPass(input.z(), lpf.cutoff_hz.z(), dt,
-                                   &lpf.state.z(), &lpf.initialized[2]);
+  output.x() = updateScalarButterworth(
+      input.x(), lpf.cutoff_hz.x(), dt, &lpf.input_1.x(), &lpf.input_2.x(),
+      &lpf.output_1.x(), &lpf.output_2.x(), &lpf.initialized[0]);
+  output.y() = updateScalarButterworth(
+      input.y(), lpf.cutoff_hz.y(), dt, &lpf.input_1.y(), &lpf.input_2.y(),
+      &lpf.output_1.y(), &lpf.output_2.y(), &lpf.initialized[1]);
+  output.z() = updateScalarButterworth(
+      input.z(), lpf.cutoff_hz.z(), dt, &lpf.input_1.z(), &lpf.input_2.z(),
+      &lpf.output_1.z(), &lpf.output_2.z(), &lpf.initialized[2]);
   return output;
 }
 
@@ -361,7 +387,8 @@ void TanhController::computePosition(const VehicleState &state,
   const Eigen::Vector3d velocity_disturbance_raw = tanhFeedback(
       velocity_estimation_error_ned, pos_gains_.L_V, pos_gains_.P_V);
   const Eigen::Vector3d velocity_disturbance_filtered =
-      updateLowPass(velocity_disturbance_raw, dt, velocity_disturbance_lpf_);
+      updateButterworthLowPass(velocity_disturbance_raw, dt,
+                               velocity_disturbance_lpf_);
   const Eigen::Vector3d gravity_ned(0.0, 0.0, gravity_);
   const Eigen::Vector3d tanh_velocity_error =
       tanhFeedback(velocity_error_ned, pos_gains_.K_V, Eigen::Vector3d::Ones());
@@ -429,8 +456,9 @@ void TanhController::computeAttitude(
   const Eigen::Vector3d angular_velocity_disturbance_raw =
       tanhFeedback(angular_velocity_estimation_error_body,
                    att_gains_.L_AngularVelocity, att_gains_.P_AngularVelocity);
-  const Eigen::Vector3d angular_velocity_disturbance_filtered = updateLowPass(
-      angular_velocity_disturbance_raw, dt, angular_velocity_disturbance_lpf_);
+  const Eigen::Vector3d angular_velocity_disturbance_filtered =
+      updateButterworthLowPass(angular_velocity_disturbance_raw, dt,
+                               angular_velocity_disturbance_lpf_);
   const Eigen::Vector3d omega_body = state.angular_velocity_body;
   const Eigen::Vector3d omega_cross_inertia_omega =
       omega_body.cross(inertia_ * omega_body);
