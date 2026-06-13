@@ -30,17 +30,17 @@ double clampPositive(double value, double fallback) {
   return value > 0.0 ? value : fallback;
 }
 
-struct StartupBlend {
-  double value{1.0};
-  double dot{0.0};
+struct StartupTimeScale {
+  double trajectory_time_s{0.0};
+  double dot{1.0};
   double ddot{0.0};
   double dddot{0.0};
   double ddddot{0.0};
 };
 
-StartupBlend smoothStartupBlend(double t, double smoothing_s) {
+StartupTimeScale smoothStartupTimeScale(double t, double smoothing_s) {
   if (smoothing_s <= 0.0 || t >= smoothing_s) {
-    return {1.0, 0.0, 0.0, 0.0, 0.0};
+    return {std::max(0.0, t - 0.5 * smoothing_s), 1.0, 0.0, 0.0, 0.0};
   }
 
   const double r = smoothing_s;
@@ -52,20 +52,14 @@ StartupBlend smoothStartupBlend(double t, double smoothing_s) {
   const double u6 = u5 * u;
   const double u7 = u6 * u;
   const double u8 = u7 * u;
-  const double u9 = u8 * u;
 
-  const double s = 70.0 * u5 - 224.0 * u6 + 280.0 * u7 - 160.0 * u8 + 35.0 * u9;
-  const double ds =
-      350.0 * u4 - 1344.0 * u5 + 1960.0 * u6 - 1280.0 * u7 + 315.0 * u8;
-  const double dds =
-      1400.0 * u3 - 6720.0 * u4 + 11760.0 * u5 - 8960.0 * u6 + 2520.0 * u7;
-  const double ddds =
-      4200.0 * u2 - 26880.0 * u3 + 58800.0 * u4 - 53760.0 * u5 + 17640.0 * u6;
-  const double dddds =
-      8400.0 * u - 80640.0 * u2 + 235200.0 * u3 - 268800.0 * u4 + 105840.0 * u5;
+  const double tau = r * (7.0 * u5 - 14.0 * u6 + 10.0 * u7 - 2.5 * u8);
+  const double dtau = 35.0 * u4 - 84.0 * u5 + 70.0 * u6 - 20.0 * u7;
+  const double ddtau = 140.0 * u3 - 420.0 * u4 + 420.0 * u5 - 140.0 * u6;
+  const double dddtau = 420.0 * u2 - 1680.0 * u3 + 2100.0 * u4 - 840.0 * u5;
+  const double ddddtau = 840.0 * u - 5040.0 * u2 + 8400.0 * u3 - 4200.0 * u4;
 
-  return {s, ds / r, dds / (r * r), ddds / (r * r * r),
-          dddds / (r * r * r * r)};
+  return {tau, dtau, ddtau / r, dddtau / (r * r), ddddtau / (r * r * r)};
 }
 
 } // namespace
@@ -156,8 +150,8 @@ private:
     }
 
     const double t = std::max(0.0, (this->now() - start_time_).seconds());
-    const StartupBlend startup_blend =
-        smoothStartupBlend(t, startup_smoothing_s_);
+    const StartupTimeScale startup_time_scale =
+        smoothStartupTimeScale(t, startup_smoothing_s_);
     const double base_omega = 2.0 * kPi / period_s_;
 
     flat_trajectory_msgs::msg::FlatTrajectoryReference ref;
@@ -176,7 +170,8 @@ private:
 
     for (int axis = 0; axis < 3; ++axis) {
       const double omega = base_omega * kFigure8Harmonics[axis];
-      const double angle = omega * t + kFigure8PhasesRad[axis];
+      const double angle = omega * startup_time_scale.trajectory_time_s +
+                           kFigure8PhasesRad[axis];
       const double amplitude = amplitudes[axis];
       const double sin_angle = std::sin(angle);
       const double cos_angle = std::cos(angle);
@@ -187,21 +182,25 @@ private:
       const double raw_snap =
           amplitude * omega * omega * omega * omega * sin_angle;
 
-      position[axis] = origin_ned_[axis] + startup_blend.value * raw_position;
-      velocity[axis] =
-          startup_blend.dot * raw_position + startup_blend.value * raw_velocity;
-      acceleration[axis] = startup_blend.ddot * raw_position +
-                           2.0 * startup_blend.dot * raw_velocity +
-                           startup_blend.value * raw_acceleration;
-      jerk[axis] = startup_blend.dddot * raw_position +
-                   3.0 * startup_blend.ddot * raw_velocity +
-                   3.0 * startup_blend.dot * raw_acceleration +
-                   startup_blend.value * raw_jerk;
-      snap[axis] = startup_blend.ddddot * raw_position +
-                   4.0 * startup_blend.dddot * raw_velocity +
-                   6.0 * startup_blend.ddot * raw_acceleration +
-                   4.0 * startup_blend.dot * raw_jerk +
-                   startup_blend.value * raw_snap;
+      const double tau_dot = startup_time_scale.dot;
+      const double tau_ddot = startup_time_scale.ddot;
+      const double tau_dddot = startup_time_scale.dddot;
+      const double tau_ddddot = startup_time_scale.ddddot;
+      const double tau_dot2 = tau_dot * tau_dot;
+      const double tau_dot3 = tau_dot2 * tau_dot;
+      const double tau_dot4 = tau_dot2 * tau_dot2;
+
+      position[axis] = origin_ned_[axis] + raw_position;
+      velocity[axis] = raw_velocity * tau_dot;
+      acceleration[axis] =
+          raw_acceleration * tau_dot2 + raw_velocity * tau_ddot;
+      jerk[axis] = raw_jerk * tau_dot3 +
+                   3.0 * raw_acceleration * tau_dot * tau_ddot +
+                   raw_velocity * tau_dddot;
+      snap[axis] = raw_snap * tau_dot4 + 6.0 * raw_jerk * tau_dot2 * tau_ddot +
+                   raw_acceleration *
+                       (3.0 * tau_ddot * tau_ddot + 4.0 * tau_dot * tau_dddot) +
+                   raw_velocity * tau_ddddot;
     }
 
     ref.position_ned.x = position[0];
