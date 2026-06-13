@@ -54,10 +54,10 @@
   </worldbody>
 
   <actuator>
-    <motor class="x2" name="motor1_front_right_ccw" site="motor1_front_right_ccw" gear="0 0 1 0 0 -0.3"/>
-    <motor class="x2" name="motor2_rear_left_ccw" site="motor2_rear_left_ccw" gear="0 0 1 0 0 -0.3"/>
-    <motor class="x2" name="motor3_front_left_cw" site="motor3_front_left_cw" gear="0 0 1 0 0 0.3"/>
-    <motor class="x2" name="motor4_rear_right_cw" site="motor4_rear_right_cw" gear="0 0 1 0 0 0.3"/>
+    <motor class="x2" name="motor1_front_right_ccw" site="motor1_front_right_ccw" gear="0 0 1 0 0 -0.05"/>
+    <motor class="x2" name="motor2_rear_left_ccw" site="motor2_rear_left_ccw" gear="0 0 1 0 0 -0.05"/>
+    <motor class="x2" name="motor3_front_left_cw" site="motor3_front_left_cw" gear="0 0 1 0 0 0.05"/>
+    <motor class="x2" name="motor4_rear_right_cw" site="motor4_rear_right_cw" gear="0 0 1 0 0 0.05"/>
   </actuator>
 
   <sensor>
